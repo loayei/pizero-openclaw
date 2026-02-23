@@ -13,9 +13,7 @@ OPENAI_TTS_VOICE = os.environ.get("OPENAI_TTS_VOICE", "alloy")
 OPENAI_TTS_SPEED = float(os.environ.get("OPENAI_TTS_SPEED", "2.0"))  # 0.25–4.0, faster = keep up with text
 OPENAI_TTS_GAIN_DB = float(os.environ.get("OPENAI_TTS_GAIN_DB", "9"))  # extra dB boost (e.g. 9 ≈ 2.8× louder)
 
-OPENCLAW_BASE_URL = os.environ.get(
-    "OPENCLAW_BASE_URL", "https://localhost:18789"
-)
+OPENCLAW_BASE_URL = os.environ.get("OPENCLAW_BASE_URL", "http://localhost:18789")
 OPENCLAW_TOKEN = os.environ.get("OPENCLAW_TOKEN", "")
 
 AUDIO_DEVICE = os.environ.get("AUDIO_DEVICE", "plughw:1,0")
