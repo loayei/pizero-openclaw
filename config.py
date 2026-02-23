@@ -8,10 +8,17 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_TRANSCRIBE_MODEL = os.environ.get(
     "OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe"
 )
-OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "tts-1")
-OPENAI_TTS_VOICE = os.environ.get("OPENAI_TTS_VOICE", "alloy")
-OPENAI_TTS_SPEED = float(os.environ.get("OPENAI_TTS_SPEED", "2.0"))  # 0.25–4.0, faster = keep up with text
+OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+OPENAI_TTS_VOICE = os.environ.get("OPENAI_TTS_VOICE", "shimmer")
+OPENAI_TTS_SPEED = float(os.environ.get("OPENAI_TTS_SPEED", "1.15"))  # 0.25–4.0
 OPENAI_TTS_GAIN_DB = float(os.environ.get("OPENAI_TTS_GAIN_DB", "9"))  # extra dB boost (e.g. 9 ≈ 2.8× louder)
+OPENAI_TTS_INSTRUCTIONS = os.environ.get(
+    "OPENAI_TTS_INSTRUCTIONS",
+    "Speak in a cheerful and friendly voice. "
+    "Be warm and upbeat but sound natural, not robotic. "
+    "Flow smoothly between sentences with no awkward pauses. "
+    "Keep a lively pace.",
+)
 
 OPENCLAW_BASE_URL = os.environ.get("OPENCLAW_BASE_URL", "http://localhost:18789")
 OPENCLAW_TOKEN = os.environ.get("OPENCLAW_TOKEN", "")
@@ -27,7 +34,7 @@ LCD_BACKLIGHT = int(os.environ.get("LCD_BACKLIGHT", "70"))
 UI_MAX_FPS = int(os.environ.get("UI_MAX_FPS", "4"))
 
 # Speak the assistant response via OpenAI TTS (like whisplay-ai-chatbot)
-ENABLE_TTS = os.environ.get("ENABLE_TTS", "false").lower() in ("true", "1", "yes")
+ENABLE_TTS = os.environ.get("ENABLE_TTS", "true").lower() in ("true", "1", "yes")
 
 # Number of past exchanges (user+assistant pairs) to keep for conversation context
 CONVERSATION_HISTORY_LENGTH = int(os.environ.get("CONVERSATION_HISTORY_LENGTH", "5"))
@@ -40,8 +47,10 @@ def print_config():
     """Print non-secret config for debugging."""
     print(f"OPENAI_TRANSCRIBE_MODEL = {OPENAI_TRANSCRIBE_MODEL}")
     print(f"OPENAI_TTS_MODEL        = {OPENAI_TTS_MODEL}")
+    print(f"OPENAI_TTS_VOICE        = {OPENAI_TTS_VOICE}")
     print(f"OPENAI_TTS_SPEED        = {OPENAI_TTS_SPEED}")
     print(f"OPENAI_TTS_GAIN_DB      = {OPENAI_TTS_GAIN_DB}")
+    print(f"OPENAI_TTS_INSTRUCTIONS = {OPENAI_TTS_INSTRUCTIONS[:60]}...")
     print(f"OPENCLAW_BASE_URL       = {OPENCLAW_BASE_URL}")
     print(f"AUDIO_DEVICE            = {AUDIO_DEVICE}")
     print(f"AUDIO_OUTPUT_DEVICE     = {AUDIO_OUTPUT_DEVICE}")

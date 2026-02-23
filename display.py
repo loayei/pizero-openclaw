@@ -4,7 +4,6 @@ import sys
 import os
 import threading
 import time
-import textwrap
 from datetime import datetime
 
 try:
@@ -224,6 +223,219 @@ def _read_battery() -> tuple[int | None, str | None]:
     return (None, None)
 
 
+# ── Pixel-art sprite frame generation (Kirby-style) ──────────────
+
+_SPX = 8  # each "pixel" is an 8×8 block → 30×30 logical grid on 240×240
+
+_C_BODY = (255, 146, 171)
+_C_HIGHLIGHT = (255, 190, 205)
+_C_OUTLINE = (140, 55, 80)
+_C_FOOT = (178, 42, 65)
+_C_EYE = (20, 20, 80)
+_C_SPARKLE = (255, 255, 255)
+_C_CHEEK = (255, 95, 130)
+_C_MOUTH_INT = (20, 20, 30)
+_C_MOUTH_EDGE = (180, 50, 80)
+
+# Round body
+_MAIN_CELLS: set[tuple[int, int]] = set()
+_body_def: dict[int, tuple[int, int]] = {
+    4: (12, 17), 5: (10, 19), 6: (9, 20), 7: (8, 21),
+    17: (8, 21), 18: (9, 20), 19: (10, 19), 20: (12, 17),
+}
+for _r in range(8, 17):
+    _body_def[_r] = (7, 22)
+for _r, (_s, _e) in _body_def.items():
+    for _c in range(_s, _e + 1):
+        _MAIN_CELLS.add((_c, _r))
+
+# Stubby arms
+_ARM_CELLS: set[tuple[int, int]] = set()
+for _p in [
+    (5, 13), (5, 14), (6, 12), (6, 13), (6, 14), (6, 15),
+    (24, 13), (24, 14), (23, 12), (23, 13), (23, 14), (23, 15),
+]:
+    _ARM_CELLS.add(_p)
+
+# Rounded feet
+_FOOT_CELLS: set[tuple[int, int]] = set()
+for _p in [
+    (10, 20), (11, 20), (12, 20), (10, 21), (11, 21), (12, 21), (11, 22),
+    (17, 20), (18, 20), (19, 20), (17, 21), (18, 21), (19, 21), (18, 22),
+]:
+    _FOOT_CELLS.add(_p)
+
+_BODY_CELLS = _MAIN_CELLS | _ARM_CELLS | _FOOT_CELLS
+
+# Sphere highlight (upper-left shine)
+_HIGHLIGHT_CELLS: set[tuple[int, int]] = set()
+for _r in range(5, 10):
+    for _c in range(9, 15):
+        if (_c, _r) in _MAIN_CELLS:
+            _HIGHLIGHT_CELLS.add((_c, _r))
+
+_CHEEK_CELLS: set[tuple[int, int]] = {
+    (8, 13), (8, 14), (9, 13), (9, 14),
+    (20, 13), (20, 14), (21, 13), (21, 14),
+}
+
+
+def _body_color(cx: int, cy: int) -> tuple[int, int, int]:
+    if (cx, cy) in _FOOT_CELLS and (cx, cy) not in _MAIN_CELLS:
+        return _C_FOOT
+    if (cx, cy) in _HIGHLIGHT_CELLS:
+        return _C_HIGHLIGHT
+    if (cx, cy) in _CHEEK_CELLS:
+        return _C_CHEEK
+    return _C_BODY
+
+
+def _spx(draw: ImageDraw.ImageDraw, gx: int, gy: int, color: tuple[int, int, int]):
+    x0, y0 = gx * _SPX, gy * _SPX
+    draw.rectangle((x0, y0, x0 + _SPX - 1, y0 + _SPX - 1), fill=color)
+
+
+def _sprite_body(draw: ImageDraw.ImageDraw):
+    for cx, cy in _BODY_CELLS:
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            nx, ny = cx + dx, cy + dy
+            if (nx, ny) not in _BODY_CELLS and 0 <= nx < 30 and 0 <= ny < 30:
+                _spx(draw, nx, ny, _C_OUTLINE)
+    for cx, cy in _BODY_CELLS:
+        _spx(draw, cx, cy, _body_color(cx, cy))
+    # Foot outlines (feet that overlap with body get foot color)
+    for cx, cy in _FOOT_CELLS:
+        _spx(draw, cx, cy, _C_FOOT)
+
+
+def _sprite_eyes_open(
+    draw: ImageDraw.ImageDraw, dx: int = 0, dy: int = 0, wide: bool = False,
+):
+    y0 = 7 if wide else 8
+    for ey in range(y0, 15):
+        for ex in (10, 11, 12):
+            _spx(draw, ex, ey, _C_EYE)
+        for ex in (17, 18, 19):
+            _spx(draw, ex, ey, _C_EYE)
+    sx = max(10, min(12, 10 + dx))
+    sy = max(y0, min(y0 + 3, y0 + dy))
+    _spx(draw, sx, sy, _C_SPARKLE)
+    _spx(draw, sx, sy + 1, _C_SPARKLE)
+    rx = max(17, min(19, 17 + dx))
+    _spx(draw, rx, sy, _C_SPARKLE)
+    _spx(draw, rx, sy + 1, _C_SPARKLE)
+
+
+def _sprite_eyes_blink(draw: ImageDraw.ImageDraw):
+    for ex in (10, 11, 12, 17, 18, 19):
+        _spx(draw, ex, 11, _C_EYE)
+
+
+def _sprite_eyes_happy(draw: ImageDraw.ImageDraw):
+    """Closed happy arcs."""
+    for col in (10, 11, 12):
+        _spx(draw, col, 10, _C_EYE)
+    _spx(draw, 10, 11, _C_EYE)
+    _spx(draw, 12, 11, _C_EYE)
+    for col in (17, 18, 19):
+        _spx(draw, col, 10, _C_EYE)
+    _spx(draw, 17, 11, _C_EYE)
+    _spx(draw, 19, 11, _C_EYE)
+
+
+def _sprite_mouth_closed(draw: ImageDraw.ImageDraw):
+    for col in range(13, 17):
+        _spx(draw, col, 17, _C_MOUTH_EDGE)
+
+
+def _sprite_mouth_smile(draw: ImageDraw.ImageDraw):
+    _spx(draw, 12, 16, _C_MOUTH_EDGE)
+    _spx(draw, 17, 16, _C_MOUTH_EDGE)
+    for col in range(13, 17):
+        _spx(draw, col, 17, _C_MOUTH_EDGE)
+
+
+def _sprite_mouth_small(draw: ImageDraw.ImageDraw):
+    _spx(draw, 14, 16, _C_MOUTH_EDGE)
+    _spx(draw, 15, 16, _C_MOUTH_EDGE)
+    _spx(draw, 13, 17, _C_MOUTH_EDGE)
+    _spx(draw, 16, 17, _C_MOUTH_EDGE)
+    _spx(draw, 14, 17, _C_MOUTH_INT)
+    _spx(draw, 15, 17, _C_MOUTH_INT)
+    _spx(draw, 14, 18, _C_MOUTH_EDGE)
+    _spx(draw, 15, 18, _C_MOUTH_EDGE)
+
+
+def _sprite_mouth_open(draw: ImageDraw.ImageDraw):
+    for col in range(13, 17):
+        _spx(draw, col, 16, _C_MOUTH_EDGE)
+        _spx(draw, col, 18, _C_MOUTH_EDGE)
+    _spx(draw, 13, 17, _C_MOUTH_EDGE)
+    _spx(draw, 16, 17, _C_MOUTH_EDGE)
+    _spx(draw, 14, 17, _C_MOUTH_INT)
+    _spx(draw, 15, 17, _C_MOUTH_INT)
+
+
+def _sprite_mouth_wide(draw: ImageDraw.ImageDraw):
+    for col in range(12, 18):
+        _spx(draw, col, 15, _C_MOUTH_EDGE)
+        _spx(draw, col, 19, _C_MOUTH_EDGE)
+    for row in (16, 17, 18):
+        _spx(draw, 12, row, _C_MOUTH_EDGE)
+        _spx(draw, 17, row, _C_MOUTH_EDGE)
+        for col in range(13, 17):
+            _spx(draw, col, row, _C_MOUTH_INT)
+
+
+def _make_sprite(eyes_fn, mouth_fn) -> Image.Image:
+    img = Image.new("RGB", (240, 240), (0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    _sprite_body(draw)
+    eyes_fn(draw)
+    mouth_fn(draw)
+    return img
+
+
+def _apply_blink(sprite: Image.Image) -> Image.Image:
+    """Return a copy with closed-eye lines drawn over the eye area."""
+    img = sprite.copy()
+    draw = ImageDraw.Draw(img)
+    for ey in range(7, 15):
+        for ex in (10, 11, 12, 17, 18, 19):
+            if (ex, ey) in _BODY_CELLS:
+                _spx(draw, ex, ey, _body_color(ex, ey))
+    _sprite_eyes_blink(draw)
+    return img
+
+
+def _generate_sprite_frames() -> dict[str, Image.Image]:
+    bases = {
+        "idle": _make_sprite(_sprite_eyes_open, _sprite_mouth_smile),
+        "listen": _make_sprite(
+            lambda d: _sprite_eyes_open(d, wide=True), _sprite_mouth_small,
+        ),
+        "think1": _make_sprite(
+            lambda d: _sprite_eyes_open(d, dx=1, dy=-1), _sprite_mouth_closed,
+        ),
+        "think2": _make_sprite(
+            lambda d: _sprite_eyes_open(d, dx=-1, dy=-1), _sprite_mouth_closed,
+        ),
+        "talk0": _make_sprite(_sprite_eyes_open, _sprite_mouth_closed),
+        "talk1": _make_sprite(_sprite_eyes_open, _sprite_mouth_small),
+        "talk2": _make_sprite(_sprite_eyes_open, _sprite_mouth_open),
+        "talk3": _make_sprite(_sprite_eyes_open, _sprite_mouth_wide),
+        "happy": _make_sprite(_sprite_eyes_happy, _sprite_mouth_smile),
+    }
+    frames = dict(bases)
+    for key, sprite in bases.items():
+        frames[key + "_blink"] = _apply_blink(sprite)
+    return frames
+
+
+# Idle / done bob cycle (pixel offsets for gentle breathing)
+_BOB_CYCLE = [0, 0, 0, 0, 1, 2, 3, 4, 4, 4, 3, 2, 1, 0, 0, 0]
+
+
 class Display:
     def __init__(self, backlight=70):
         self.board = WhisPlayBoard()
@@ -251,13 +463,13 @@ class Display:
 
         self._pad_x = 10
         self._pad_y = 8
-        self._status_wrap = self._calc_wrap_width(self._status_font, self._pad_x)
 
         self._default_backlight = backlight
         self._sleeping = False
         self._draw_lock = threading.Lock()
         self._cached_paragraphs: list[str] = []
         self._cached_wrapped: list[list[str]] = []
+        self._sprite_frames = _generate_sprite_frames()
 
         self.clear()
 
@@ -286,20 +498,33 @@ class Display:
         text_font: ImageFont.FreeTypeFont,
         emoji_font: ImageFont.FreeTypeFont | None,
         fill: tuple[int, int, int],
+        max_x: int = 0,
     ) -> float:
-        """Draw text with emoji fallback (by segment/cluster), returns total width drawn."""
+        """Draw text with emoji fallback (by segment/cluster), returns total width drawn.
+
+        When *max_x* > 0, stop drawing before exceeding that x coordinate.
+        """
         x, y = xy
+        right_limit = max_x if max_x > 0 else self._width
         for segment, use_emoji in _segment_mixed(text):
             if use_emoji and emoji_font:
                 font = emoji_font
                 draw_seg = segment
             else:
                 font = text_font
-                # No emoji font or regular text: use "?" for emoji so we don’t get empty boxes
                 draw_seg = "?" if use_emoji else segment
             try:
+                seg_w = font.getlength(draw_seg)
+                if x + seg_w > right_limit:
+                    for ch in draw_seg:
+                        ch_w = font.getlength(ch)
+                        if x + ch_w > right_limit:
+                            break
+                        draw.text((x, y), ch, font=font, fill=fill)
+                        x += ch_w
+                    return x - xy[0]
                 draw.text((x, y), draw_seg, font=font, fill=fill)
-                x += font.getlength(draw_seg)
+                x += seg_w
             except Exception:
                 try:
                     draw.text((x, y), "?", font=text_font, fill=fill)
@@ -326,28 +551,53 @@ class Display:
                 w += text_font.getlength(seg)
         return w
 
-    def _calc_wrap_width(self, font: ImageFont.FreeTypeFont, pad_x: int) -> int:
-        avg_char_w = font.getlength("M")
-        usable_w = self._width - pad_x * 2
-        return max(10, int(usable_w / avg_char_w))
+    def _truncate_text(
+        self,
+        text: str,
+        font: ImageFont.FreeTypeFont,
+        max_w: float,
+        emoji_font: ImageFont.FreeTypeFont | None = None,
+    ) -> str:
+        """Truncate *text* so it fits within *max_w* pixels, adding '…' if shortened."""
+        def _measure(s: str) -> float:
+            if emoji_font:
+                return self._text_width_mixed(s, font, emoji_font)
+            return font.getlength(s)
 
-    def _wrap_pixels(self, text: str, font: ImageFont.FreeTypeFont, max_w: int) -> list[str]:
-        """Word-wrap text to fit within *max_w* pixels (much more accurate than char-count wrapping)."""
+        if _measure(text) <= max_w:
+            return text
+        ellipsis_w = font.getlength("…")
+        while len(text) > 1 and _measure(text) + ellipsis_w > max_w:
+            text = text[:-1]
+        return text + "…"
+
+    def _wrap_pixels(
+        self,
+        text: str,
+        font: ImageFont.FreeTypeFont,
+        max_w: int,
+        emoji_font: ImageFont.FreeTypeFont | None = None,
+    ) -> list[str]:
+        """Word-wrap text to fit within *max_w* pixels, accounting for emoji font widths."""
+        def _measure(s: str) -> float:
+            if emoji_font:
+                return self._text_width_mixed(s, font, emoji_font)
+            return font.getlength(s)
+
         words = text.split(" ")
         lines: list[str] = []
         cur = ""
         for word in words:
             test = f"{cur} {word}" if cur else word
-            if font.getlength(test) <= max_w:
+            if _measure(test) <= max_w:
                 cur = test
             else:
                 if cur:
                     lines.append(cur)
-                if font.getlength(word) > max_w:
-                    # Force-break a very long word
+                if _measure(word) > max_w:
                     buf = ""
                     for ch in word:
-                        if font.getlength(buf + ch) > max_w and buf:
+                        if _measure(buf + ch) > max_w and buf:
                             lines.append(buf)
                             buf = ch
                         else:
@@ -420,9 +670,8 @@ class Display:
             )
             y_offset = ACCENT_BAR_HEIGHT + 6
 
-        wrap_w = self._calc_wrap_width(self._status_font, self._pad_x)
-        wrapped = textwrap.fill(text, width=wrap_w)
-        lines = wrapped.split("\n")
+        usable_w = self._width - self._pad_x * 2
+        lines = self._wrap_pixels(text, self._status_font, usable_w, self._emoji_status)
         line_h = STATUS_FONT_SIZE + 4
         sub_h = STATUS_SUB_FONT_SIZE + 2 if subtitle else 0
         total_h = line_h * len(lines) + sub_h
@@ -430,16 +679,20 @@ class Display:
 
         for line in lines:
             tw = self._text_width_mixed(line, self._status_font, self._emoji_status)
-            x = int((self._width - tw) / 2)
-            self._draw_mixed(draw, (x, y), line, self._status_font, self._emoji_status, color)
+            x = max(self._pad_x, int((self._width - tw) / 2))
+            self._draw_mixed(
+                draw, (x, y), line, self._status_font, self._emoji_status, color,
+                max_x=self._width - self._pad_x,
+            )
             y += line_h
             if y + line_h > self._height:
                 break
 
         if subtitle and y + STATUS_SUB_FONT_SIZE <= self._height:
-            sub_w = self._status_sub_font.getlength(subtitle)
-            x = int((self._width - sub_w) / 2)
-            draw.text((x, y), subtitle, font=self._status_sub_font, fill=(100, 100, 100))
+            sub = self._truncate_text(subtitle, self._status_sub_font, usable_w)
+            sub_w = self._status_sub_font.getlength(sub)
+            x = max(self._pad_x, int((self._width - sub_w) / 2))
+            draw.text((x, y), sub, font=self._status_sub_font, fill=(100, 100, 100))
 
         self._draw_battery(draw)
         self._draw(img)
@@ -490,6 +743,120 @@ class Display:
         self._cached_paragraphs = []
         self._cached_wrapped = []
 
+    # ── Sprite-based animated character ─────────────────────────────
+
+    _ACCENT_COLORS = {
+        "listening": (60, 140, 255),
+        "thinking": (255, 220, 50),
+        "talking": (0, 200, 100),
+        "done": (0, 160, 80),
+    }
+
+    def start_character(self, state: str = "done", tts_player=None):
+        """Start the animated character loop. tts_player is used for RMS mouth sync."""
+        self._stop_animations()
+        self._char_state = state
+        self._char_tts = tts_player
+        self._char_stop = threading.Event()
+        t = threading.Thread(target=self._character_loop, daemon=True)
+        t.start()
+        self._char_thread = t
+
+    def set_character_state(self, state: str):
+        self._char_state = state
+
+    def stop_character(self):
+        if hasattr(self, "_char_stop"):
+            self._char_stop.set()
+        if hasattr(self, "_char_thread"):
+            self._char_thread.join(timeout=2)
+
+    def _character_loop(self):
+        tick = 0
+        while not self._char_stop.is_set():
+            state = self._char_state
+            tts = getattr(self, "_char_tts", None)
+
+            # Select sprite frame key
+            if state == "talking":
+                mouth = tts.get_mouth_shape() if tts else -1
+                key = f"talk{mouth}" if mouth >= 0 else "talk0"
+            elif state == "listening":
+                key = "listen"
+            elif state == "thinking":
+                key = "think1" if (tick // 15) % 2 == 0 else "think2"
+            elif state == "done":
+                key = "happy"
+            else:
+                key = "idle"
+
+            # Blink every ~4 s — skip for listening (attentive) and done (happy eyes)
+            if (tick % 40) in (0, 1) and state not in ("listening", "done"):
+                key += "_blink"
+
+            sprite = self._sprite_frames.get(key, self._sprite_frames["idle"])
+
+            # Gentle bob for idle / done states
+            bob_px = 0
+            if state in ("idle", "done"):
+                bob_px = _BOB_CYCLE[tick % len(_BOB_CYCLE)]
+
+            if bob_px > 0:
+                img = Image.new("RGB", (self._width, self._height), (0, 0, 0))
+                img.paste(sprite.crop((0, bob_px, self._width, self._height)), (0, 0))
+            else:
+                img = sprite.copy()
+
+            draw = ImageDraw.Draw(img)
+
+            draw.rectangle(
+                (0, 0, self._width, ACCENT_BAR_HEIGHT),
+                fill=self._ACCENT_COLORS.get(state, (40, 40, 40)),
+            )
+
+            label = {"listening": "Listening…", "thinking": "Thinking…"}.get(state, "")
+            if label:
+                lw = self._status_sub_font.getlength(label)
+                draw.text(
+                    (int((self._width - lw) / 2), 200),
+                    label, font=self._status_sub_font, fill=(120, 120, 120),
+                )
+
+            # Subtitle: single line showing the current fragment being spoken
+            sub_text = ""
+            if tts:
+                sub_text = tts.current_text
+            if sub_text:
+                sub_text = _clean_markdown(sub_text)
+                usable_w = self._width - self._pad_x * 2
+                sub_font = self._response_font
+                sub_y = 200
+                draw.rectangle(
+                    (0, sub_y - 2, self._width, self._height),
+                    fill=(0, 0, 0),
+                )
+                sub_text = self._truncate_text(
+                    sub_text, sub_font, usable_w, self._emoji_response,
+                )
+                sw = self._text_width_mixed(sub_text, sub_font, self._emoji_response)
+                sx = max(self._pad_x, int((self._width - sw) / 2))
+                self._draw_mixed(
+                    draw, (sx, sub_y), sub_text,
+                    sub_font, self._emoji_response, (255, 255, 255),
+                    max_x=self._width - self._pad_x,
+                )
+
+            self._draw_battery(draw)
+            self._draw(img)
+
+            tick += 1
+            self._char_stop.wait(timeout=0.1)
+
+    def _stop_animations(self):
+        """Stop any running animation (spinner or character)."""
+        self.stop_spinner()
+        self.stop_character()
+
     def start_spinner(self, label: str = "Thinking", color: tuple[int, int, int] = (255, 220, 50)):
         self._spinner_stop = threading.Event()
         t = threading.Thread(target=self._spin_loop, args=(label, color), daemon=True)
@@ -511,12 +878,16 @@ class Display:
             draw = ImageDraw.Draw(img)
             draw.rectangle((0, 0, self._width, ACCENT_BAR_HEIGHT), fill=color)
             tw = self._text_width_mixed(text, self._status_font, self._emoji_status)
-            x = int((self._width - tw) / 2)
+            x = max(self._pad_x, int((self._width - tw) / 2))
             y = (self._height - STATUS_FONT_SIZE) // 2
-            self._draw_mixed(draw, (x, y), text, self._status_font, self._emoji_status, color)
+            self._draw_mixed(
+                draw, (x, y), text, self._status_font, self._emoji_status, color,
+                max_x=self._width - self._pad_x,
+            )
             sub = "Getting answer…"
             sub_w = self._status_sub_font.getlength(sub)
-            draw.text((int((self._width - sub_w) / 2), y + STATUS_FONT_SIZE + 6), sub, font=self._status_sub_font, fill=(90, 90, 90))
+            sx = max(self._pad_x, int((self._width - sub_w) / 2))
+            draw.text((sx, y + STATUS_FONT_SIZE + 6), sub, font=self._status_sub_font, fill=(90, 90, 90))
             self._draw_battery(draw)
             self._draw(img)
             i = (i + 1) % len(frames)
@@ -576,7 +947,7 @@ class Display:
                 if not stripped:
                     wrapped = [""]
                 else:
-                    wrapped = self._wrap_pixels(stripped, self._response_font, usable_w)
+                    wrapped = self._wrap_pixels(stripped, self._response_font, usable_w, self._emoji_response)
                 new_cached_paras.append(stripped)
                 new_cached_wrapped.append(wrapped)
                 all_lines.extend(wrapped)
@@ -600,6 +971,7 @@ class Display:
             self._draw_mixed(
                 draw, (self._pad_x, y), line,
                 self._response_font, self._emoji_response, text_color,
+                max_x=self._width - self._pad_x,
             )
             y += line_h
 

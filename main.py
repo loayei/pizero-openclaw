@@ -67,6 +67,7 @@ class Assistant:
         self._worker_gen += 1
         self._dismiss.set()
         self.display.stop_spinner()
+        self.display.stop_character()
         if self._tts:
             self._tts.cancel()
         self._go_idle()
@@ -75,6 +76,7 @@ class Assistant:
     def _on_abort_listening(self):
         """Called when user presses again while in LISTENING (stuck or abort): stop recorder, go Ready."""
         self.recorder.cancel()
+        self.display.stop_character()
         self._go_idle()
         log.info("abort listening -- back to Ready")
 
@@ -82,12 +84,15 @@ class Assistant:
         self._touch()
         self._dismiss.set()
         log.info("button pressed -- start recording")
-        self.display.set_status(
-            "Listening...",
-            color=(140, 200, 255),
-            subtitle="Speak now",
-            accent_color=(60, 140, 255),
-        )
+        if self._tts:
+            self.display.start_character("listening", self._tts)
+        else:
+            self.display.set_status(
+                "Listening...",
+                color=(140, 200, 255),
+                subtitle="Speak now",
+                accent_color=(60, 140, 255),
+            )
         try:
             self.recorder.start()
         except Exception as e:
@@ -108,6 +113,7 @@ class Assistant:
             if not self._is_stale(my_gen):
                 log.error("error: %s", e)
                 self.display.stop_spinner()
+                self.display.stop_character()
                 self._show_error(str(e)[:80])
         finally:
             self.display.stop_spinner()
@@ -126,6 +132,7 @@ class Assistant:
             log.info("silence detected (RMS=%.0f), skipping", rms)
             if self._is_stale(my_gen):
                 return
+            self.display.stop_character()
             self.display.set_status(
                 "No speech detected",
                 color=(160, 160, 160),
@@ -143,12 +150,15 @@ class Assistant:
         # --- Transcribe ---
         self._state_entered_at = time.monotonic()
         self.ptt.state = State.TRANSCRIBING
-        self.display.set_status(
-            "Transcribing...",
-            color=(255, 230, 100),
-            subtitle="One moment",
-            accent_color=(255, 180, 0),
-        )
+        if self._tts:
+            self.display.set_character_state("thinking")
+        else:
+            self.display.set_status(
+                "Transcribing...",
+                color=(255, 230, 100),
+                subtitle="One moment",
+                accent_color=(255, 180, 0),
+            )
         t0 = time.monotonic()
         transcript = transcribe(wav_path)
         log.info("transcribe took %.1fs => %r", time.monotonic() - t0, (transcript[:80] if transcript else "(empty)"))
@@ -164,7 +174,8 @@ class Assistant:
             return
         self._state_entered_at = time.monotonic()
         self.ptt.state = State.THINKING
-        self.display.start_spinner("Thinking")
+        if not self._tts:
+            self.display.start_spinner("Thinking")
 
         self.ptt.state = State.STREAMING
         first_token = True
@@ -177,37 +188,44 @@ class Assistant:
                 break
             if first_token:
                 log.info("first token after %.1fs", time.monotonic() - stream_t0)
-                self.display.stop_spinner()
-                self.display.set_response_text("")
+                if self._tts:
+                    self.display.set_character_state("talking")
+                else:
+                    self.display.stop_spinner()
+                    self.display.set_response_text("")
                 first_token = False
             full_response += delta
-            self.display.append_response(delta)
+            if not self._tts:
+                self.display.append_response(delta)
 
-            # Streaming TTS: submit complete sentences as they arrive
+            # Streaming TTS: batch 2–3 sentences for natural flow
             if self._tts:
                 tts_buffer += delta
-                while True:
-                    m = re.search(r"[.!?]\s|\n", tts_buffer)
-                    if not m:
-                        break
-                    sentence = tts_buffer[: m.end()].strip()
-                    tts_buffer = tts_buffer[m.end() :]
-                    if sentence:
-                        self._tts.submit(sentence)
+                sentence_ends = list(re.finditer(r"[.!?]\s|\n", tts_buffer))
+                if len(sentence_ends) >= 2:
+                    cut = sentence_ends[1].end()
+                    chunk = tts_buffer[:cut].strip()
+                    tts_buffer = tts_buffer[cut:]
+                    if chunk:
+                        self._tts.submit(chunk)
 
         # Stale worker: exit without touching display, TTS, or history
         if self._is_stale(my_gen):
             return
 
         log.info("stream done in %.1fs, %d chars", time.monotonic() - stream_t0, len(full_response))
-        self.display.flush_response()
-        log.info("response complete -- holding on screen")
 
         # Submit remaining TTS buffer and wait for playback to finish
         if self._tts:
             if tts_buffer.strip():
                 self._tts.submit(tts_buffer.strip())
             self._tts.flush()
+            self.display.stop_character()
+            self.display.set_response_text(full_response)
+        else:
+            self.display.flush_response()
+
+        log.info("response complete -- holding on screen")
 
         # Update conversation history
         self._conversation_history.append({"role": "user", "content": transcript})
@@ -235,10 +253,12 @@ class Assistant:
         self._last_idle_refresh = time.monotonic()
         self.ptt.state = State.IDLE
         self.display.set_backlight(config.LCD_BACKLIGHT)
+        self.display.stop_character()
         self.display.set_idle_screen()
 
     def _show_error(self, msg: str):
         self.ptt.state = State.ERROR
+        self.display.stop_character()
         self.display.set_status(
             msg[:50] + ("..." if len(msg) > 50 else ""),
             color=(255, 120, 120),
@@ -288,6 +308,7 @@ class Assistant:
         self.recorder.cancel()
         if self._tts:
             self._tts.cancel()
+        self.display.stop_character()
         if self._worker_thread and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=5)
         self.display.cleanup()

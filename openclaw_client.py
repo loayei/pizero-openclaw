@@ -1,10 +1,11 @@
 import json
 from typing import Generator
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 import config
 
-# Reuse TCP connection to reduce latency on repeated requests (saves connection setup RTT).
 _http_session: requests.Session | None = None
 
 
@@ -12,6 +13,15 @@ def _get_session() -> requests.Session:
     global _http_session
     if _http_session is None:
         _http_session = requests.Session()
+        retry = Retry(
+            total=3,
+            backoff_factor=0.3,
+            status_forcelist=[502, 503, 504],
+            allowed_methods=["POST"],
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        _http_session.mount("http://", adapter)
+        _http_session.mount("https://", adapter)
     return _http_session
 
 
@@ -49,7 +59,10 @@ def stream_response(
 
     print(f"[openclaw] POST {url} (stream=true)")
 
-    resp = _get_session().post(url, json=body, headers=headers, stream=True, timeout=(30, 120))
+    try:
+        resp = _get_session().post(url, json=body, headers=headers, stream=True, timeout=(30, 120))
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise RuntimeError(f"Cannot reach OpenClaw at {config.OPENCLAW_BASE_URL}: {e}") from e
 
     if resp.status_code != 200:
         raise RuntimeError(
