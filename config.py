@@ -8,16 +8,16 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_TRANSCRIBE_MODEL = os.environ.get(
     "OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe"
 )
-OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
-OPENAI_TTS_VOICE = os.environ.get("OPENAI_TTS_VOICE", "shimmer")
-OPENAI_TTS_SPEED = float(os.environ.get("OPENAI_TTS_SPEED", "1.15"))  # 0.25–4.0
+OPENAI_TTS_MODEL = os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts-2025-12-15")
+OPENAI_TTS_VOICE = os.environ.get("OPENAI_TTS_VOICE", "coral")
+OPENAI_TTS_SPEED = float(os.environ.get("OPENAI_TTS_SPEED", "1.1"))  # 0.25–4.0
 OPENAI_TTS_GAIN_DB = float(os.environ.get("OPENAI_TTS_GAIN_DB", "9"))  # extra dB boost (e.g. 9 ≈ 2.8× louder)
 OPENAI_TTS_INSTRUCTIONS = os.environ.get(
     "OPENAI_TTS_INSTRUCTIONS",
-    "Speak in a cheerful and friendly voice. "
-    "Be warm and upbeat but sound natural, not robotic. "
-    "Flow smoothly between sentences with no awkward pauses. "
-    "Keep a lively pace.",
+    "Speak in a warm, sweet, and playful tone with a gentle high pitch. "
+    "Sound like an adorable, tiny friend who is genuinely excited to help. "
+    "Use natural breathing and smooth pacing — never robotic or monotone. "
+    "Let sentences flow into each other without awkward pauses.",
 )
 
 OPENCLAW_BASE_URL = os.environ.get("OPENCLAW_BASE_URL", "http://localhost:18789")
